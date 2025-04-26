@@ -1,2 +1,11 @@
-import pandas as pd
-import openai
+import socket, argparse, sys
+
+class GestorSistema:
+  pass
+
+class Analizador:
+  pass
+
+class GeneradorReportesIA:
+  pass
+

@@ -2,6 +2,7 @@ import threading
 import platform
 import os
 import time
+from Analizador import AnalizadorVulnerabilidades
 from tkinter import (
     Tk, Label, Entry, Button, StringVar, messagebox, Text, Scrollbar,
     END, RIGHT, Y, LEFT, BOTH, OptionMenu, Frame, Menu
@@ -247,20 +248,24 @@ class SnifferGUI:
         self.text_area.see(END)
 
     def analizar_pcap(self):
-        self.text_area.insert(END, "\n[INFO] Analizando archivo .pcap con PyShark...\n")
-        try:
-            cap = pyshark.FileCapture("paquetes_capturados.pcap", only_summaries=True)
-            resumenes = [pkt.summary_line for pkt in cap]
-            cap.close()
-            for r in resumenes:
-                self.text_area.insert(END, r + '\n')
+        # self.text_area.insert(END, "\n[INFO] Analizando archivo .pcap con PyShark...\n")
+        # try:
+        #     cap = pyshark.FileCapture("paquetes_capturados.pcap", only_summaries=True)
+        #     resumenes = [pkt.summary_line for pkt in cap]
+        #     cap.close()
+        #     for r in resumenes:
+        #         self.text_area.insert(END, r + '\n')
 
-            recomendaciones = self.analisis_ai(resumenes)
-            self.text_area.insert(END, "\n[IA] Recomendaciones de seguridad:\n")
-            for r in recomendaciones:
-                self.text_area.insert(END, f"- {r}\n")
-        except Exception as e:
-            self.text_area.insert(END, f"[ERROR] Error al analizar: {e}\n")
+        #     recomendaciones = self.analisis_ai(resumenes)
+        #     self.text_area.insert(END, "\n[IA] Recomendaciones de seguridad:\n")
+        #     for r in recomendaciones:
+        #         self.text_area.insert(END, f"- {r}\n")
+        # except Exception as e:
+        #     self.text_area.insert(END, f"[ERROR] Error al analizar: {e}\n")
+          analizador = AnalizadorVulnerabilidades('paquetes_capturados.pcap')
+          analizador.analizar_paquetes()
+          analizador.mostrar_ips_activas()
+        
 
     def analisis_ai(self, resumenes):
         recomendaciones = []

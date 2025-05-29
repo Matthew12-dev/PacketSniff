@@ -41,9 +41,6 @@ class AnalizadorVulnerabilidades:
                 if 'IP' in pkt and int(pkt.ip.ttl) < 10:
                     print(f"TTL bajo (posible spoofing): {pkt.ip.src} TTL={pkt.ip.ttl}")
 
-                if 'ICMP' in pkt and pkt.icmp.type == '8':
-                    print(f"Solicitud ICMP (echo request): {pkt.ip.src} → {pkt.ip.dst}")
-
                 if hasattr(pkt, 'length') and int(pkt.length) > 1500:
                     print(f"Paquete muy grande: {pkt.ip.src} ({pkt.length} bytes)")
 

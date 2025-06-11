@@ -193,6 +193,7 @@ class SnifferGUI(ctk.CTk):
 
         self.text_area = ctk.CTkTextbox(self, height=15)
         self.text_area.pack(fill="both", expand=True, padx=10, pady=5)
+        self.text_area.tag_config("warning", foreground="red")#Cambio , para el color red de las alertas 
         
         self.switch_tema = ctk.CTkSwitch(self, text="Modo Oscuro", variable=self.tema_oscuro, command=self.toggle_tema)
         self.switch_tema.select()
@@ -229,6 +230,15 @@ class SnifferGUI(ctk.CTk):
         analizador = AnalizadorVulnerabilidades('paquetes_capturados.pcap')
         analizador.analizar_paquetes()
         analizador.mostrar_ips_activas()
+        if hasattr(analizador, 'alertas') and analizador.alertas: #Cambio para las alertas
+            self.text_area.insert("end", "\nAdvertencias detectadas:\n", "warning")
+            for alerta in analizador.alertas:
+               self.text_area.insert("end", alerta + '\n', "warning")
+               self.text_area.see("end")
+               messagebox.showwarning("Advertencia de Seguridad", "Se detectaron posibles amenazas.\nRevisa el análisis.")
+        else:
+            self.text_area.insert("end", "\nNo se detectaron amenazas evidentes.\n")
+            messagebox.showinfo("Análisis completo", "No se encontraron alertas de seguridad.")
 
     def toggle_tema(self):
         nuevo_modo = "Dark" if self.tema_oscuro.get() else "Light"

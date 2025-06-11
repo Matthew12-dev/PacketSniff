@@ -3,3 +3,4 @@ scikit-learn==1.5.2
 openai==0.28
 scapy
 npcap==1.82
+customtkinter==5.2.2

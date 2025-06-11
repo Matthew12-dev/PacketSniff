@@ -4,13 +4,20 @@ from collections import defaultdict, Counter
 class AnalizadorVulnerabilidades:
     def __init__(self, archivo_pcap):
         self.archivo_pcap = archivo_pcap
+        try:
         self.cap = pyshark.FileCapture(self.archivo_pcap)
+        except Exception as e:
+        print(f"[ERROR] No se pudo abrir el archivo: {e}")
+        return
         self.conteo_ips = defaultdict(int)
         self.mac_por_ip = defaultdict(set)
         self.dominios_dns = defaultdict(set)
         self.timestamps_por_ip = defaultdict(list)
 
     def analizar_paquetes(self):
+        if not self.cap:
+           print("Análisis cancelado: No se pudo cargar la captura.")
+           return
         print("\nIniciando análisis de posibles vulnerabilidades...\n")
         for pkt in self.cap:
             try:
@@ -26,9 +33,6 @@ class AnalizadorVulnerabilidades:
                     if hasattr(pkt.http, 'authorization'):
                         print(f"Credenciales HTTP: {pkt.http.authorization}")
 
-                if 'TCP' in pkt and int(pkt.tcp.dstport) > 1024:
-                    print(f"Puerto no estándar en uso: {pkt.ip.src} → {pkt.ip.dst}:{pkt.tcp.dstport}")
-
                 if 'TCP' in pkt and int(pkt.tcp.flags, 16) == 0:
                     print(f"TCP NULL scan: {pkt.ip.src} → {pkt.ip.dst}")
 
@@ -38,8 +42,8 @@ class AnalizadorVulnerabilidades:
                 if 'TCP' in pkt and int(pkt.tcp.flags, 16) == 41:
                     print(f"TCP XMAS scan detectado: {pkt.ip.src} → {pkt.ip.dst}")
 
-                if 'IP' in pkt and int(pkt.ip.ttl) < 10:
-                    print(f"TTL bajo (posible spoofing): {pkt.ip.src} TTL={pkt.ip.ttl}")
+                if 'IP' in pkt and int(pkt.ip.ttl) < 5:
+                    print(f"TTL extremadamente bajo (posible manipulación): {pkt.ip.src}")
 
                 if hasattr(pkt, 'length') and int(pkt.length) > 1500:
                     print(f"Paquete muy grande: {pkt.ip.src} ({pkt.length} bytes)")
@@ -52,9 +56,9 @@ class AnalizadorVulnerabilidades:
                 if 'TELNET' in pkt:
                     print(f"Tráfico TELNET inseguro: {pkt.ip.src} → {pkt.ip.dst}")
 
-                if 'DNS' in pkt and hasattr(pkt.dns, 'a') and pkt.dns.qry_name == 'google.com':
-                    if pkt.dns.a != '8.8.8.8':
-                        print(f"DNS spoofing sospechoso: {pkt.ip.src} devolvió {pkt.dns.a} para google.com")
+                if 'DNS' in pkt and hasattr(pkt.dns, 'a') and hasattr(pkt.dns, 'qry_name'):
+                   if pkt.dns.qry_name.endswith("google.com") and pkt.dns.a != '8.8.8.8':
+                      print(f"DNS spoofing sospechoso: {pkt.ip.src} → {pkt.dns.a} para {pkt.dns.qry_name}")
 
                 if 'DNS' in pkt and hasattr(pkt.dns, 'qry_name'):
                     dominio = pkt.dns.qry_name
@@ -82,6 +86,7 @@ class AnalizadorVulnerabilidades:
 
         self.detectar_dns_tunneling()
         self.detectar_dos_simples()
+        self.cap.close()
 
     def detectar_dns_tunneling(self):
         print("\nAnálisis de posibles DNS tunneling:")
@@ -99,7 +104,7 @@ class AnalizadorVulnerabilidades:
                     print(f"Posible ataque DoS: {ip} envió {len(tiempos)} paquetes en {intervalo:.2f} segundos")
 
     def mostrar_ips_activas(self):
-        print("\n🔝 IPs más activas:")
+        print("\n IPs más activas:")
         for ip, count in sorted(self.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]:
             print(f"{ip} → {count} paquetes")
 

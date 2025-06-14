@@ -5,7 +5,8 @@ import time
 import platform
 from Analizador import AnalizadorVulnerabilidades
 from scapy.all import sniff, Ether, IP, IPv6, TCP, UDP, wrpcap, get_working_ifaces
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
+import datetime
 
 # Configuración inicial de apariencia
 ctk.set_appearance_mode("System")
@@ -35,7 +36,7 @@ class Paquete:
         return info
 
 class PacketSniffer:
-    def __init__(self, iface=None, packet_callback=None, bpf_filter=None):
+    def __init__(self, iface=None, packet_callback=None, bpf_filter=None, ruta_guardado="."):
         self.iface = iface
         self.paquetes_capturados = []
         self.paquetes_raw = []
@@ -43,6 +44,9 @@ class PacketSniffer:
         self.captura_thread = None
         self.packet_callback = packet_callback
         self.bpf_filter = bpf_filter
+        self.tiempo_captura = None
+        self.inicio = None
+        self.ruta_guardado = ruta_guardado
 
     def start(self, tiempo_captura):
         if self.capturando:
@@ -61,13 +65,15 @@ class PacketSniffer:
 
     def _capturar_paquetes(self):
         try:
-            sniff(
-                prn=self.process_packet,
-                store=False,
-                iface=self.iface,
-                timeout=self.tiempo_captura,
-                filter=self.bpf_filter
-            )
+            while self.capturando and (time.time() - self.inicio) < self.tiempo_captura:
+                sniff(
+                    prn=self.process_packet,
+                    store=False,
+                    iface=self.iface,
+                    filter=self.bpf_filter,
+                    count=1,
+                    timeout=1
+                )
         except Exception as e:
             print(f"[ERROR] Error durante la captura: {e}")
         self.stop()
@@ -75,7 +81,7 @@ class PacketSniffer:
     def _progreso_captura_fluido(self):
         while self.capturando:
             elapsed = time.time() - self.inicio
-            progreso = (elapsed+1) / self.tiempo_captura
+            progreso = (elapsed + 1) / self.tiempo_captura
             if progreso >= 1.0:
                 self.packet_callback("__PROGRESO__100")
                 break
@@ -94,7 +100,7 @@ class PacketSniffer:
             dest_mac = eth.dst.upper()
             src_mac = eth.src.upper()
             eth_proto = eth.type
-            
+
             trans_proto = None
             src_port = None
             dest_port = None
@@ -108,7 +114,7 @@ class PacketSniffer:
                 ip_dst = ip_layer.dst
                 ip_version = 4
                 proto_num = ip_layer.proto
-                
+
                 if proto_num == 6 and TCP in packet:
                     trans_proto = 'TCP'
                     tcp_layer = packet[TCP]
@@ -147,8 +153,12 @@ class PacketSniffer:
 
     def guardar_paquetes(self):
         if self.paquetes_raw:
-            wrpcap("paquetes_capturados.pcap", self.paquetes_raw)
-            print("[INFO] ¡Paquetes guardados en 'paquetes_capturados.pcap'!")
+            if not os.path.exists(self.ruta_guardado):
+                os.makedirs(self.ruta_guardado)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = os.path.join(self.ruta_guardado, f"captura_{timestamp}.pcap")
+            wrpcap(filename, self.paquetes_raw)
+            print(f"[INFO] ¡Paquetes guardados en '{filename}'!")
         else:
             print("[INFO] No se capturaron paquetes.")
 
@@ -156,48 +166,93 @@ class SnifferGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Sniffer de Red Mejorado")
-        self.geometry("850x700")
+        self.geometry("850x750")
         self.sniffer = None
 
         self.tema_oscuro = ctk.BooleanVar(value=True)
+        self.ruta_guardado_var = ctk.StringVar(value=os.path.abspath("capturas"))
         self.crear_componentes()
 
     def crear_componentes(self):
-        ctk.CTkLabel(self, text=f"Sistema Operativo: {platform.system()}").pack(pady=5)
+        # ======== INFO DEL SISTEMA Y CONFIG ========
+        frame_config = ctk.CTkFrame(self)
+        frame_config.pack(pady=10, padx=10, fill="x")
+
+        ctk.CTkLabel(frame_config, text=f"Sistema Operativo: {platform.system()}").pack(anchor="w", pady=2)
 
         self.ifaces_dict = {f"{iface.description} ({iface.name})": iface.name for iface in get_working_ifaces()}
         self.iface_var = ctk.StringVar(value=list(self.ifaces_dict.keys())[0])
+        self.filtro_var = ctk.StringVar()
 
-        ctk.CTkLabel(self, text="Interfaz de red:").pack()
-        self.iface_menu = ctk.CTkOptionMenu(self, variable=self.iface_var, values=list(self.ifaces_dict.keys()))
-        self.iface_menu.pack(pady=5)
+        frame_cols = ctk.CTkFrame(frame_config)
+        frame_cols.pack(fill="x", pady=5)
+
+        # Columna izquierda: Interfaz de red
+        frame_left = ctk.CTkFrame(frame_cols)
+        frame_left.pack(side="left", expand=True, fill="both", padx=(0, 5))
+        ctk.CTkLabel(frame_left, text="Interfaz de red:").pack(anchor="w")
+        self.iface_menu = ctk.CTkOptionMenu(frame_left, variable=self.iface_var, values=list(self.ifaces_dict.keys()))
+        self.iface_menu.pack(fill="x")
+
+        # Columna derecha: Filtro BPF
+        frame_right = ctk.CTkFrame(frame_cols)
+        frame_right.pack(side="left", expand=True, fill="both", padx=(5, 0))
+        ctk.CTkLabel(frame_right, text="Filtro BPF:").pack(anchor="w")
+        ctk.CTkEntry(frame_right, textvariable=self.filtro_var).pack(fill="x")
+
+        # ======== PARÁMETROS DE CAPTURA ========
+        frame_param = ctk.CTkFrame(self)
+        frame_param.pack(pady=10, padx=10, fill="x")
 
         self.tiempo_var = ctk.StringVar(value="10")
-        ctk.CTkLabel(self, text="Tiempo (s):").pack()
-        ctk.CTkEntry(self, textvariable=self.tiempo_var).pack(pady=5)
+        ctk.CTkLabel(frame_param, text="Tiempo de captura (segundos):").pack(anchor="w")
+        ctk.CTkEntry(frame_param, textvariable=self.tiempo_var).pack(fill="x", pady=5)
 
-        self.filtro_var = ctk.StringVar()
-        ctk.CTkLabel(self, text="Filtro BPF:").pack()
-        ctk.CTkEntry(self, textvariable=self.filtro_var).pack(pady=5)
+        # Label superior
+        ctk.CTkLabel(frame_param, text="Ruta de guardado:").pack(anchor="w")
 
-        ctk.CTkButton(self, text="Iniciar Captura", command=self.iniciar_captura).pack(pady=5)
-        ctk.CTkButton(self, text="Detener Captura", command=self.detener_captura).pack(pady=5)
-        ctk.CTkButton(self, text="Analizar con PyShark", command=self.analizar_pcap).pack(pady=5)
+        # Frame para entrada y botón
+        ruta_frame = ctk.CTkFrame(frame_param)
+        ruta_frame.pack(fill="x", pady=5)
 
-        self.progress = ctk.CTkProgressBar(self)
+        # Configurar columnas (50% para cada elemento)
+        ruta_frame.grid_columnconfigure(0, weight=1)  # Columna para la entrada (50%)
+        ruta_frame.grid_columnconfigure(1, weight=1)  # Columna para el botón (50%)
+
+        # Entrada (mitad izquierda)
+        ctk.CTkEntry(ruta_frame, textvariable=self.ruta_guardado_var).grid(
+            row=0, column=0, sticky="ew", padx=(0, 5)  # Margen derecho de 5px
+        )
+
+        # Botón (mitad derecha)
+        ctk.CTkButton(ruta_frame,text="Abrir carpeta",command=self.abrir_carpeta,width=120).grid(row=0, column=1, sticky="w") 
+
+        # ======== BOTONES DE CONTROL ========
+        frame_botones = ctk.CTkFrame(self)
+        frame_botones.pack(pady=10, padx=10, fill="x")
+        ctk.CTkButton(frame_botones, text="Iniciar Captura", command=self.iniciar_captura).pack(side="left", expand=True, padx=5)
+        ctk.CTkButton(frame_botones, text="Detener Captura", command=self.detener_captura).pack(side="left", expand=True, padx=5)
+        ctk.CTkButton(frame_botones, text="Analizar con PyShark", command=self.analizar_pcap).pack(side="left", expand=True, padx=5)
+
+        # ======== ESTADO Y PROGRESO ========
+        frame_estado = ctk.CTkFrame(self)
+        frame_estado.pack(pady=10, padx=10, fill="x")
+
+        self.progress = ctk.CTkProgressBar(frame_estado)
         self.progress.set(0)
-        self.progress.pack(pady=5)
+        self.progress.pack(fill="x", pady=5)
 
-        self.label_estado = ctk.CTkLabel(self, text="")
-        self.label_estado.pack(pady=5)
+        self.label_estado = ctk.CTkLabel(frame_estado, text="")
+        self.label_estado.pack()
 
-        self.text_area = ctk.CTkTextbox(self, height=15)
-        self.text_area.pack(fill="both", expand=True, padx=10, pady=5)
-        self.text_area.tag_config("warning", foreground="red")#Cambio , para el color red de las alertas 
-        
-        self.switch_tema = ctk.CTkSwitch(self, text="Modo Oscuro", variable=self.tema_oscuro, command=self.toggle_tema)
+        self.switch_tema = ctk.CTkSwitch(frame_estado, text="Modo Oscuro", variable=self.tema_oscuro, command=self.toggle_tema)
         self.switch_tema.select()
-        self.switch_tema.pack(pady=10)
+        self.switch_tema.pack(pady=5)
+
+        # ======== ÁREA DE RESULTADOS ========
+        self.text_area = ctk.CTkTextbox(self, height=15)
+        self.text_area.pack(fill="both", expand=True, padx=10, pady=10)
+        self.text_area.tag_config("warning", foreground="red")
 
     def iniciar_captura(self):
         self.text_area.delete("1.0", "end")
@@ -208,7 +263,8 @@ class SnifferGUI(ctk.CTk):
             tiempo = int(self.tiempo_var.get())
             iface_name = self.ifaces_dict[self.iface_var.get()]
             filtro = self.filtro_var.get().strip() or None
-            self.sniffer = PacketSniffer(iface=iface_name, packet_callback=self.mostrar_paquete, bpf_filter=filtro)
+            ruta = self.ruta_guardado_var.get()
+            self.sniffer = PacketSniffer(iface=iface_name, packet_callback=self.mostrar_paquete, bpf_filter=filtro, ruta_guardado=ruta)
             self.sniffer.start(tiempo)
         except ValueError:
             messagebox.showerror("Error", "Introduce un número válido para el tiempo.")
@@ -227,24 +283,43 @@ class SnifferGUI(ctk.CTk):
             self.text_area.see("end")
 
     def analizar_pcap(self):
-        analizador = AnalizadorVulnerabilidades('paquetes_capturados.pcap')
+        ruta = self.ruta_guardado_var.get()
+        archivos = sorted([f for f in os.listdir(ruta) if f.endswith(".pcap")])
+        if not archivos:
+            messagebox.showinfo("Sin archivos", "No hay archivos .pcap en la carpeta de guardado.")
+            return
+        ultimo = os.path.join(ruta, archivos[-1])
+        
+        analizador = AnalizadorVulnerabilidades(ultimo)
         self.text_area.insert("end", "\nResultados del análisis:\n", "bold")
         analizador.analizar_paquetes()
-    
+
         if hasattr(analizador, 'alertas') and analizador.alertas:
-           self.text_area.insert("end", "\nAdvertencias detectadas:\n", "warning")
-           for alerta in analizador.alertas:
-               self.text_area.insert("end", alerta + '\n', "warning")
-           messagebox.showwarning("Advertencia de Seguridad", "Se detectaron posibles amenazas.\nRevisa los detalles en el panel.")
+            self.text_area.insert("end", "\nAdvertencias detectadas:\n", "warning")
+            for alerta in analizador.alertas:
+                self.text_area.insert("end", alerta + '\n', "warning")
+            messagebox.showwarning("Advertencia de Seguridad", "Se detectaron posibles amenazas.\nRevisa los detalles en el panel.")
         else:
-           self.text_area.insert("end", "\nNo se detectaron amenazas evidentes.\n")
-           messagebox.showinfo("Análisis completo", "No se encontraron alertas de seguridad.")
+            self.text_area.insert("end", "\nNo se detectaron amenazas evidentes.\n")
+            messagebox.showinfo("Análisis completo", "No se encontraron alertas de seguridad.")
 
         self.text_area.insert("end", "\nIPs más activas:\n", "bold")
         for ip, count in sorted(analizador.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]:
-           self.text_area.insert("end", f"{ip} → {count} paquetes\n")
-    
+            self.text_area.insert("end", f"{ip} → {count} paquetes\n")
+
         self.text_area.see("end")
+
+    def abrir_carpeta(self):
+        ruta = self.ruta_guardado_var.get()
+        if os.path.exists(ruta):
+            if platform.system() == "Windows":
+                os.startfile(ruta)
+            elif platform.system() == "Darwin":
+                os.system(f"open '{ruta}'")
+            else:
+                os.system(f"xdg-open '{ruta}'")
+        else:
+            messagebox.showerror("Ruta inválida", "La carpeta especificada no existe.")
 
     def toggle_tema(self):
         nuevo_modo = "Dark" if self.tema_oscuro.get() else "Light"

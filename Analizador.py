@@ -1,22 +1,29 @@
 import pyshark
-from collections import defaultdict, Counter
+from collections import defaultdict
+from datetime import datetime
+import joblib
+import numpy as np
 
 class AnalizadorVulnerabilidades:
-    def __init__(self, archivo_pcap):
+    def __init__(self, archivo_pcap, modelo_path='modelo_entrenado.pkl'):
         self.archivo_pcap = archivo_pcap
         self.alertas = []
-        try:
-            self.cap = pyshark.FileCapture(self.archivo_pcap)
-        except Exception as e:
-            print(f"[ERROR] No se pudo abrir el archivo: {e}")
-            self.cap = []
+        self.cap = None
         self.conteo_ips = defaultdict(int)
         self.mac_por_ip = defaultdict(set)
         self.dominios_dns = defaultdict(set)
         self.timestamps_por_ip = defaultdict(list)
 
+        try:
+            self.cap = pyshark.FileCapture(self.archivo_pcap)
+            self.modelo = joblib.load(modelo_path)
+        except Exception as e:
+            self.alertas.append(f"[ERROR] No se pudo abrir el archivo o cargar el modelo: {e}")
+
     def analizar_paquetes(self):
-        print("\nIniciando análisis de posibles vulnerabilidades...\n")
+        if not self.cap:
+            return
+
         for pkt in self.cap:
             try:
                 if 'IP' in pkt:
@@ -27,72 +34,60 @@ class AnalizadorVulnerabilidades:
                         self.timestamps_por_ip[src].append(pkt.sniff_time)
 
                 if 'HTTP' in pkt:
-                    msg = f"HTTP sin cifrado: {pkt.ip.src} → {pkt.ip.dst}"
+                    msg = f"ALERTA: HTTP sin cifrado: {pkt.ip.src} → {pkt.ip.dst}"
                     self.alertas.append(msg)
                     if hasattr(pkt.http, 'authorization'):
-                        cred = f"Credenciales HTTP expuestas: {pkt.http.authorization}"
-                        self.alertas.append(cred)
+                        self.alertas.append(f"ALERTA: Credenciales HTTP detectadas: {pkt.http.authorization}")
 
-                flags = getattr(pkt.tcp, 'flags', None) if 'TCP' in pkt else None
-                if flags:
-                    flag_val = int(flags, 16)
-                    if flag_val == 0:
-                        self.alertas.append(f"TCP NULL scan detectado: {pkt.ip.src} → {pkt.ip.dst}")
-                    elif flag_val == 1:
-                        self.alertas.append(f"TCP FIN scan detectado: {pkt.ip.src} → {pkt.ip.dst}")
-                    elif flag_val == 41:
-                        self.alertas.append(f"TCP XMAS scan detectado: {pkt.ip.src} → {pkt.ip.dst}")
-
-                if 'IP' in pkt and int(pkt.ip.ttl) < 5:
-                    self.alertas.append(f"TTL extremadamente bajo (posible manipulación): {pkt.ip.src} TTL={pkt.ip.ttl}")
-
-                if hasattr(pkt, 'length') and int(pkt.length) > 1500:
-                    self.alertas.append(f"Paquete muy grande: {pkt.ip.src} ({pkt.length} bytes)")
+                if 'TCP' in pkt:
+                    flags = getattr(pkt.tcp, 'flags', None)
+                    if flags:
+                        flags = int(flags, 16)
+                        if flags == 0:
+                            self.alertas.append(f"ALERTA: TCP NULL scan: {pkt.ip.src} → {pkt.ip.dst}")
+                        elif flags == 1:
+                            self.alertas.append(f"ALERTA: TCP FIN scan: {pkt.ip.src} → {pkt.ip.dst}")
+                        elif flags == 41:
+                            self.alertas.append(f"ALERTA: TCP XMAS scan: {pkt.ip.src} → {pkt.ip.dst}")
 
                 if 'FTP' in pkt:
-                    self.alertas.append(f"Tráfico FTP detectado: {pkt.ip.src} → {pkt.ip.dst}")
-                    if hasattr(pkt.ftp, 'request_command') and 'USER' in pkt.ftp.request_command:
-                        self.alertas.append(f"Usuario FTP enviado: {pkt.ftp.request_arg}")
+                    self.alertas.append(f"ALERTA: Tráfico FTP detectado: {pkt.ip.src} → {pkt.ip.dst}")
 
                 if 'TELNET' in pkt:
-                    self.alertas.append(f"Tráfico TELNET inseguro: {pkt.ip.src} → {pkt.ip.dst}")
-
-                if 'DNS' in pkt and hasattr(pkt.dns, 'qry_name'):
-                    dominio = pkt.dns.qry_name
-                    src_ip = pkt.ip.src
-                    self.dominios_dns[src_ip].add(dominio)
-                    if not hasattr(pkt.dns, 'a'):
-                        self.alertas.append(f"Petición DNS sin respuesta: {src_ip} pidió {dominio}")
-                    elif dominio.endswith("google.com") and pkt.dns.a != "8.8.8.8":
-                        self.alertas.append(f"DNS spoofing sospechoso: {src_ip} devolvió {pkt.dns.a} para {dominio}")
+                    self.alertas.append(f"ALERTA: Tráfico TELNET inseguro: {pkt.ip.src} → {pkt.ip.dst}")
 
                 if 'ARP' in pkt:
                     ip = pkt.arp.psrc
                     mac = pkt.arp.hwsrc
                     self.mac_por_ip[ip].add(mac)
                     if len(self.mac_por_ip[ip]) > 1:
-                        self.alertas.append(f"ARP Spoofing: {ip} tiene múltiples MACs: {self.mac_por_ip[ip]}")
+                        self.alertas.append(f"ALERTA: ARP Spoofing: {ip} tiene múltiples MACs: {self.mac_por_ip[ip]}")
 
                 if 'HTTP' in pkt and hasattr(pkt.http, 'request_uri'):
                     uri = pkt.http.request_uri.lower()
                     patrones_inyeccion = ["'", "--", "<script>", "or 1=1", "drop table"]
                     if any(p in uri for p in patrones_inyeccion):
-                        self.alertas.append(f"Inyección sospechosa desde {pkt.ip.src}: URI → {uri}")
+                        self.alertas.append(f"ALERTA: Posible inyección desde {pkt.ip.src} → URI: {uri}")
 
-                if 'HTTP' in pkt and hasattr(pkt.http, 'response_code'):
-                    if pkt.http.response_code in ['401', '403', '500']:
-                        self.alertas.append(f"Respuesta HTTP anómala desde {pkt.ip.src}: código {pkt.http.response_code}")
+                # Características para el modelo ML:
+                if 'IP' in pkt:
+                    ttl = int(pkt.ip.ttl) if hasattr(pkt.ip, 'ttl') else 64
+                    length = int(getattr(pkt, 'length', 0))
+                    num_dns = len(self.dominios_dns[pkt.ip.src])
+                    dns_request = 1 if 'DNS' in pkt else 0
+                    features = np.array([[ttl, length, num_dns, dns_request]])
 
-            except AttributeError:
+                    try:
+                        pred = self.modelo.predict(features)
+                        if pred[0] == 1:
+                            self.alertas.append(f"⚠️ ML: Tráfico sospechoso detectado desde {pkt.ip.src}")
+                    except Exception as e:
+                        self.alertas.append(f"[ERROR ML] {e}")
+
+            except Exception as e:
                 continue
 
-        self.detectar_dns_tunneling()
         self.detectar_dos_simples()
-
-    def detectar_dns_tunneling(self):
-        for ip, dominios in self.dominios_dns.items():
-            if len(dominios) > 15:
-                self.alertas.append(f"Posible DNS tunneling desde {ip}: {len(dominios)} dominios únicos")
 
     def detectar_dos_simples(self):
         for ip, tiempos in self.timestamps_por_ip.items():
@@ -100,11 +95,11 @@ class AnalizadorVulnerabilidades:
                 tiempos.sort()
                 intervalo = (tiempos[-1] - tiempos[0]).total_seconds()
                 if intervalo < 5:
-                    self.alertas.append(f"Posible ataque DoS: {ip} envió {len(tiempos)} paquetes en {intervalo:.2f} segundos")
+                    self.alertas.append(f"ALERTA: Posible ataque DoS desde {ip} con {len(tiempos)} paquetes en {intervalo:.2f}s")
 
     def mostrar_ips_activas(self):
-        resumen = sorted(self.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]
-        print("\n IPs más activas:")
-        for ip, count in resumen:
-            print(f"{ip} → {count} paquetes")
+        ip_ordenadas = sorted(self.conteo_ips.items(), key=lambda x: x[1], reverse=True)
+        self.alertas.append("\n🔝 IPs más activas:")
+        for ip, count in ip_ordenadas[:5]:
+            self.alertas.append(f"{ip} → {count} paquetes")
 

@@ -182,7 +182,7 @@ class SnifferGUI(ctk.CTk):
 
         ctk.CTkButton(self, text="Iniciar Captura", command=self.iniciar_captura).pack(pady=5)
         ctk.CTkButton(self, text="Detener Captura", command=self.detener_captura).pack(pady=5)
-        ctk.CTkButton(self, text="Analizar con PyShark + IA", command=self.analizar_pcap).pack(pady=5)
+        ctk.CTkButton(self, text="Analizar con PyShark", command=self.analizar_pcap).pack(pady=5)
 
         self.progress = ctk.CTkProgressBar(self)
         self.progress.set(0)
@@ -228,17 +228,23 @@ class SnifferGUI(ctk.CTk):
 
     def analizar_pcap(self):
         analizador = AnalizadorVulnerabilidades('paquetes_capturados.pcap')
+        self.text_area.insert("end", "\nResultados del análisis:\n", "bold")
         analizador.analizar_paquetes()
-        analizador.mostrar_ips_activas()
-        if hasattr(analizador, 'alertas') and analizador.alertas: #Cambio para las alertas
-            self.text_area.insert("end", "\nAdvertencias detectadas:\n", "warning")
-            for alerta in analizador.alertas:
+    
+        if hasattr(analizador, 'alertas') and analizador.alertas:
+           self.text_area.insert("end", "\nAdvertencias detectadas:\n", "warning")
+           for alerta in analizador.alertas:
                self.text_area.insert("end", alerta + '\n', "warning")
-               self.text_area.see("end")
-               messagebox.showwarning("Advertencia de Seguridad", "Se detectaron posibles amenazas.\nRevisa el análisis.")
+           messagebox.showwarning("Advertencia de Seguridad", "Se detectaron posibles amenazas.\nRevisa los detalles en el panel.")
         else:
-            self.text_area.insert("end", "\nNo se detectaron amenazas evidentes.\n")
-            messagebox.showinfo("Análisis completo", "No se encontraron alertas de seguridad.")
+           self.text_area.insert("end", "\nNo se detectaron amenazas evidentes.\n")
+           messagebox.showinfo("Análisis completo", "No se encontraron alertas de seguridad.")
+
+        self.text_area.insert("end", "\nIPs más activas:\n", "bold")
+        for ip, count in sorted(analizador.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]:
+           self.text_area.insert("end", f"{ip} → {count} paquetes\n")
+    
+        self.text_area.see("end")
 
     def toggle_tema(self):
         nuevo_modo = "Dark" if self.tema_oscuro.get() else "Light"

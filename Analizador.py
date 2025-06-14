@@ -80,7 +80,7 @@ class AnalizadorVulnerabilidades:
                     try:
                         pred = self.modelo.predict(features)
                         if pred[0] == 1:
-                            self.alertas.append(f"⚠️ ML: Tráfico sospechoso detectado desde {pkt.ip.src}")
+                            self.alertas.append(f"ML: Tráfico sospechoso detectado desde {pkt.ip.src}")
                     except Exception as e:
                         self.alertas.append(f"[ERROR ML] {e}")
 
@@ -99,7 +99,7 @@ class AnalizadorVulnerabilidades:
 
     def mostrar_ips_activas(self):
         ip_ordenadas = sorted(self.conteo_ips.items(), key=lambda x: x[1], reverse=True)
-        self.alertas.append("\n🔝 IPs más activas:")
+        self.alertas.append("\nIPs más activas:")
         for ip, count in ip_ordenadas[:5]:
             self.alertas.append(f"{ip} → {count} paquetes")
 

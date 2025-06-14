@@ -12,6 +12,8 @@ import datetime
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("dark-blue")
 
+PROGRESO_PREFIX = "__PROGRESO__"
+
 class Paquete:
     def __init__(self, dest_mac, src_mac, eth_proto, trans_proto=None,
                  src_port=None, dest_port=None, ip_src=None, ip_dst=None, ip_version=None):
@@ -83,10 +85,10 @@ class PacketSniffer:
             elapsed = time.time() - self.inicio
             progreso = (elapsed + 1) / self.tiempo_captura
             if progreso >= 1.0:
-                self.packet_callback("__PROGRESO__100")
+                self.packet_callback(f"{PROGRESO_PREFIX}100")
                 break
             else:
-                self.packet_callback(f"__PROGRESO__{int(progreso * 100)}")
+                self.packet_callback(f"{PROGRESO_PREFIX}{int(progreso * 100)}")
             time.sleep(0.05)
 
     def stop(self):
@@ -152,15 +154,16 @@ class PacketSniffer:
                 self.packet_callback(paquete.resumen())
 
     def guardar_paquetes(self):
-        if self.paquetes_raw:
-            if not os.path.exists(self.ruta_guardado):
-                os.makedirs(self.ruta_guardado)
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = os.path.join(self.ruta_guardado, f"captura_{timestamp}.pcap")
-            wrpcap(filename, self.paquetes_raw)
-            print(f"[INFO] ¡Paquetes guardados en '{filename}'!")
-        else:
-            print("[INFO] No se capturaron paquetes.")
+        if not self.paquetes_raw:
+            print("[INFO] No se capturaron paquetes. No se guardó ningún archivo.")
+            return
+
+        if not os.path.exists(self.ruta_guardado):
+            os.makedirs(self.ruta_guardado)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = os.path.join(self.ruta_guardado, f"captura_{timestamp}.pcap")
+        wrpcap(filename, self.paquetes_raw)
+        print(f"[INFO] ¡Paquetes guardados en '{filename}'!")
 
 class SnifferGUI(ctk.CTk):
     def __init__(self):
@@ -254,6 +257,7 @@ class SnifferGUI(ctk.CTk):
         self.text_area.pack(fill="both", expand=True, padx=10, pady=10)
         self.text_area.tag_config("warning", foreground="red")
 
+
     def iniciar_captura(self):
         self.text_area.delete("1.0", "end")
         self.progress.set(0)
@@ -261,6 +265,9 @@ class SnifferGUI(ctk.CTk):
 
         try:
             tiempo = int(self.tiempo_var.get())
+            if tiempo <= 0:
+                messagebox.showerror("Error", "El tiempo debe ser mayor a 0.")
+                return
             iface_name = self.ifaces_dict[self.iface_var.get()]
             filtro = self.filtro_var.get().strip() or None
             ruta = self.ruta_guardado_var.get()
@@ -268,14 +275,14 @@ class SnifferGUI(ctk.CTk):
             self.sniffer.start(tiempo)
         except ValueError:
             messagebox.showerror("Error", "Introduce un número válido para el tiempo.")
-
+            
     def detener_captura(self):
         if self.sniffer:
             self.sniffer.stop()
-
+            
     def mostrar_paquete(self, resumen):
-        if resumen.startswith("__PROGRESO__"):
-            valor = int(resumen.replace("__PROGRESO__", ""))
+        if resumen.startswith(PROGRESO_PREFIX):
+            valor = int(resumen.replace(PROGRESO_PREFIX, ""))
             self.progress.set(min(valor / 100, 1.0))
             self.label_estado.configure(text=f"Captura en progreso... {valor}%")
         else:
@@ -289,10 +296,14 @@ class SnifferGUI(ctk.CTk):
             messagebox.showinfo("Sin archivos", "No hay archivos .pcap en la carpeta de guardado.")
             return
         ultimo = os.path.join(ruta, archivos[-1])
-        
-        analizador = AnalizadorVulnerabilidades(ultimo)
-        self.text_area.insert("end", "\nResultados del análisis:\n", "bold")
-        analizador.analizar_paquetes()
+
+        try:
+            analizador = AnalizadorVulnerabilidades(ultimo)
+            self.text_area.insert("end", "\nResultados del análisis:\n", "bold")
+            analizador.analizar_paquetes()
+        except Exception as e:
+            messagebox.showerror("Error de análisis", f"Ocurrió un error al analizar el archivo:\n{e}")
+            return
 
         if hasattr(analizador, 'alertas') and analizador.alertas:
             self.text_area.insert("end", "\nAdvertencias detectadas:\n", "warning")
@@ -308,7 +319,7 @@ class SnifferGUI(ctk.CTk):
             self.text_area.insert("end", f"{ip} → {count} paquetes\n")
 
         self.text_area.see("end")
-
+    
     def abrir_carpeta(self):
         ruta = self.ruta_guardado_var.get()
         if os.path.exists(ruta):
@@ -328,4 +339,6 @@ class SnifferGUI(ctk.CTk):
 if __name__ == "__main__":
     app = SnifferGUI()
     app.mainloop()
+
+
 

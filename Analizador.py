@@ -33,11 +33,35 @@ class AnalizadorVulnerabilidades:
                     if hasattr(pkt, 'sniff_time'):
                         self.timestamps_por_ip[src].append(pkt.sniff_time)
 
+                    # ML features
+                    ttl = int(pkt.ip.ttl) if hasattr(pkt.ip, 'ttl') else 64
+                    length = int(getattr(pkt, 'length', 0))
+                    num_dns = len(self.dominios_dns[src])
+                    dns_request = 1 if 'DNS' in pkt else 0
+                    features = np.array([[ttl, length, num_dns, dns_request]])
+
+                    try:
+                        pred = self.modelo.predict(features)
+                        if pred[0] == 1:
+                            self.alertas.append(f"ML: Tráfico sospechoso detectado desde {src}")
+                    except Exception as e:
+                        self.alertas.append(f"[ERROR ML] {e}")
+
                 if 'HTTP' in pkt:
                     msg = f"ALERTA: HTTP sin cifrado: {pkt.ip.src} → {pkt.ip.dst}"
                     self.alertas.append(msg)
+
                     if hasattr(pkt.http, 'authorization'):
                         self.alertas.append(f"ALERTA: Credenciales HTTP detectadas: {pkt.http.authorization}")
+
+                    if hasattr(pkt.http, 'request_uri'):
+                        uri = pkt.http.request_uri.lower()
+                        patrones_inyeccion = ["'", "--", "<script>", "or 1=1", "drop table"]
+                        if any(p in uri for p in patrones_inyeccion):
+                            self.alertas.append(f"ALERTA: Posible inyección desde {pkt.ip.src} → URI: {uri}")
+
+                    if hasattr(pkt.http, 'user_agent') and 'sqlmap' in pkt.http.user_agent.lower():
+                        self.alertas.append(f"ALERTA: User-Agent sospechoso (sqlmap) desde {pkt.ip.src}")
 
                 if 'TCP' in pkt:
                     flags = getattr(pkt.tcp, 'flags', None)
@@ -63,26 +87,11 @@ class AnalizadorVulnerabilidades:
                     if len(self.mac_por_ip[ip]) > 1:
                         self.alertas.append(f"ALERTA: ARP Spoofing: {ip} tiene múltiples MACs: {self.mac_por_ip[ip]}")
 
-                if 'HTTP' in pkt and hasattr(pkt.http, 'request_uri'):
-                    uri = pkt.http.request_uri.lower()
-                    patrones_inyeccion = ["'", "--", "<script>", "or 1=1", "drop table"]
-                    if any(p in uri for p in patrones_inyeccion):
-                        self.alertas.append(f"ALERTA: Posible inyección desde {pkt.ip.src} → URI: {uri}")
-
-                # Características para el modelo ML:
-                if 'IP' in pkt:
-                    ttl = int(pkt.ip.ttl) if hasattr(pkt.ip, 'ttl') else 64
-                    length = int(getattr(pkt, 'length', 0))
-                    num_dns = len(self.dominios_dns[pkt.ip.src])
-                    dns_request = 1 if 'DNS' in pkt else 0
-                    features = np.array([[ttl, length, num_dns, dns_request]])
-
-                    try:
-                        pred = self.modelo.predict(features)
-                        if pred[0] == 1:
-                            self.alertas.append(f"ML: Tráfico sospechoso detectado desde {pkt.ip.src}")
-                    except Exception as e:
-                        self.alertas.append(f"[ERROR ML] {e}")
+                if 'DNS' in pkt and hasattr(pkt.dns, 'qry_name'):
+                    dominio = pkt.dns.qry_name
+                    self.dominios_dns[pkt.ip.src].add(dominio)
+                    if len(str(dominio)) > 80:
+                        self.alertas.append(f"ALERTA: Posible DNS tunneling desde {pkt.ip.src} → Dominio muy largo: {dominio}")
 
             except Exception as e:
                 continue
@@ -101,5 +110,8 @@ class AnalizadorVulnerabilidades:
         ip_ordenadas = sorted(self.conteo_ips.items(), key=lambda x: x[1], reverse=True)
         self.alertas.append("\nIPs más activas:")
         for ip, count in ip_ordenadas[:5]:
-            self.alertas.append(f"{ip} → {count} paquetes")
+            dominios = list(self.dominios_dns.get(ip, []))
+            nombre = dominios[0] if dominios else "N/A"
+            self.alertas.append(f"{ip} ({nombre}) → {count} paquetes")
+
 

@@ -94,7 +94,7 @@ class PacketSniffer:
     def stop(self):
         if self.capturando:
             self.capturando = False
-            self.guardar_paquetes()
+        
 
     def process_packet(self, packet):
         if Ether in packet:
@@ -153,17 +153,20 @@ class PacketSniffer:
             if self.packet_callback:
                 self.packet_callback(paquete.resumen())
 
-    def guardar_paquetes(self):
-        if not self.paquetes_raw:
-            print("[INFO] No se capturaron paquetes. No se guardó ningún archivo.")
-            return
+    def guardar_paquetes(self, nombre_archivo=None):
+       if not self.paquetes_raw:
+           print("[INFO] No se capturaron paquetes. No se guardó ningún archivo.")
+           return
 
-        if not os.path.exists(self.ruta_guardado):
-            os.makedirs(self.ruta_guardado)
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(self.ruta_guardado, f"captura_{timestamp}.pcap")
-        wrpcap(filename, self.paquetes_raw)
-        print(f"[INFO] ¡Paquetes guardados en '{filename}'!")
+       if not os.path.exists(self.ruta_guardado):
+          os.makedirs(self.ruta_guardado)
+
+       timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+       nombre = f"{nombre_archivo}.pcap" if nombre_archivo else f"captura_{timestamp}.pcap"
+       filename = os.path.join(self.ruta_guardado, nombre)
+       wrpcap(filename, self.paquetes_raw)
+       print(f"[INFO] ¡Paquetes guardados en '{filename}'!")
+
 
 class SnifferGUI(ctk.CTk):
     def __init__(self):
@@ -208,34 +211,65 @@ class SnifferGUI(ctk.CTk):
         frame_param.pack(pady=10, padx=10, fill="x")
 
         self.tiempo_var = ctk.StringVar(value="10")
-        ctk.CTkLabel(frame_param, text="Tiempo de captura (segundos):").pack(anchor="w")
-        ctk.CTkEntry(frame_param, textvariable=self.tiempo_var).pack(fill="x", pady=5)
+        self.nombre_archivo_var = ctk.StringVar()
 
-        # Label superior
-        ctk.CTkLabel(frame_param, text="Ruta de guardado:").pack(anchor="w")
+        # Etiqueta de sección
+        ctk.CTkLabel(frame_param, text="Configuración Manual").pack(anchor="w")
+        frame_param.pack(side="left", expand=True, fill="both", padx=(5, 0))
+        
 
-        # Frame para entrada y botón
-        ruta_frame = ctk.CTkFrame(frame_param)
-        ruta_frame.pack(fill="x", pady=5)
+        # Crear fila para tiempo y nombre
+        tiempo_nombre_frame = ctk.CTkFrame(frame_param)
+        tiempo_nombre_frame.pack(fill="x", pady=5)
 
-        # Configurar columnas (50% para cada elemento)
-        ruta_frame.grid_columnconfigure(0, weight=1)  # Columna para la entrada (50%)
-        ruta_frame.grid_columnconfigure(1, weight=1)  # Columna para el botón (50%)
+        # Configurar columnas para proporción
+        tiempo_nombre_frame.grid_columnconfigure(0, weight=1)
+        tiempo_nombre_frame.grid_columnconfigure(1, weight=3)
 
-        # Entrada (mitad izquierda)
-        ctk.CTkEntry(ruta_frame, textvariable=self.ruta_guardado_var).grid(
-            row=0, column=0, sticky="ew", padx=(0, 5)  # Margen derecho de 5px
+        # Etiquetas
+        ctk.CTkLabel(tiempo_nombre_frame, text="Tiempo captura:").grid(row=0, column=0, sticky="w", padx=(0, 5))
+        ctk.CTkLabel(tiempo_nombre_frame, text="Nombre del archivo:").grid(row=0, column=1, sticky="w")
+
+        # Campos
+        ctk.CTkEntry(tiempo_nombre_frame, textvariable=self.tiempo_var, width=50).grid(
+        row=1, column=0, sticky="ew", padx=(0, 5) 
+        )
+        ctk.CTkEntry(tiempo_nombre_frame, textvariable=self.nombre_archivo_var, placeholder_text="Nombre del archivo (.pcap)").grid(
+        row=1, column=1, sticky="ew"
         )
 
-        # Botón (mitad derecha)
-        ctk.CTkButton(ruta_frame,text="Abrir carpeta",command=self.abrir_carpeta,width=120).grid(row=0, column=1, sticky="w") 
+        # Label superior
+        ctk.CTkLabel(frame_param, text="Ruta de guardado para el archivo:").pack(anchor="w")
+
+        # Frame para ruta, botón y nombre de archivo
+        ruta_frame = ctk.CTkFrame(frame_param)
+        ruta_frame.pack(fill="x", pady=5)
+        # Variables
+        self.nombre_archivo_var = ctk.StringVar()
+
+        # Configurar columnas (ajustadas)
+        ruta_frame.grid_columnconfigure(0, weight=2)
+        ruta_frame.grid_columnconfigure(1, weight=0)
+        ruta_frame.grid_columnconfigure(2, weight=0)
+
+
+        # Campo de entrada para la ruta
+        ctk.CTkEntry(ruta_frame, textvariable=self.ruta_guardado_var).grid(
+        row=0, column=0, sticky="ew", padx=(0, 5)
+        )
+
+        # Botón para abrir carpeta
+        ctk.CTkButton(ruta_frame, text="Abrir carpeta", command=self.abrir_carpeta, width=120).grid(
+        row=0, column=1, sticky="w", padx=(0, 5)
+        )
 
         # ======== BOTONES DE CONTROL ========
         frame_botones = ctk.CTkFrame(self)
         frame_botones.pack(pady=10, padx=10, fill="x")
-        ctk.CTkButton(frame_botones, text="Iniciar Captura", command=self.iniciar_captura).pack(side="left", expand=True, padx=5)
+        ctk.CTkButton(frame_botones, text="Iniciar Captura Manual", command=self.iniciar_captura).pack(side="left", expand=True, padx=5)
         ctk.CTkButton(frame_botones, text="Detener Captura", command=self.detener_captura).pack(side="left", expand=True, padx=5)
-        ctk.CTkButton(frame_botones, text="Analizar con PyShark", command=self.analizar_pcap).pack(side="left", expand=True, padx=5)
+        ctk.CTkButton(frame_botones, text="Captura Automatica", command=self.iniciar_captura_manual).pack(side="left", expand=True, padx=5)
+        ctk.CTkButton(frame_botones, text="Analizar Captura", command=self.analizar_pcap).pack(side="left", expand=True, padx=5)
 
         # ======== ESTADO Y PROGRESO ========
         frame_estado = ctk.CTkFrame(self)
@@ -253,7 +287,7 @@ class SnifferGUI(ctk.CTk):
         self.switch_tema.pack(pady=5)
 
         # ======== ÁREA DE RESULTADOS ========
-        self.text_area = ctk.CTkTextbox(self, height=15)
+        self.text_area = ctk.CTkTextbox(self, height=28)
         self.text_area.pack(fill="both", expand=True, padx=10, pady=10)
         self.text_area.tag_config("warning", foreground="red")
 
@@ -275,10 +309,31 @@ class SnifferGUI(ctk.CTk):
             self.sniffer.start(tiempo)
         except ValueError:
             messagebox.showerror("Error", "Introduce un número válido para el tiempo.")
+    def iniciar_captura_manual(self):
+        self.text_area.delete("1.0", "end")
+        self.progress.set(0)
+        self.label_estado.configure(text="")
+
+        try:
+           iface_name = self.ifaces_dict[self.iface_var.get()]
+           filtro = self.filtro_var.get().strip() or None
+           ruta = self.ruta_guardado_var.get()
+           self.sniffer = PacketSniffer(
+              iface=iface_name,
+              packet_callback=self.mostrar_paquete,
+              bpf_filter=filtro,
+              ruta_guardado=ruta
+           )
+           self.sniffer.start(tiempo_captura=999999)  # Simula sin límite
+           self.label_estado.configure(text="Captura manual iniciada... (usa 'Detener' para finalizar)")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo iniciar la captura manual:\n{e}")
             
     def detener_captura(self):
         if self.sniffer:
-            self.sniffer.stop()
+           nombre = self.nombre_archivo_var.get().strip()
+           self.sniffer.guardar_paquetes(nombre_archivo=nombre if nombre else None)
+           self.sniffer.stop()
             
     def mostrar_paquete(self, resumen):
         if resumen.startswith(PROGRESO_PREFIX):

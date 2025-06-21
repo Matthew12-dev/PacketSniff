@@ -1,12 +1,14 @@
-import customtkinter as ctk
 import threading
 import os
 import time
 import platform
 from Analizador import AnalizadorVulnerabilidades
 from scapy.all import sniff, Ether, IP, IPv6, TCP, UDP, wrpcap, get_working_ifaces
-from tkinter import messagebox, filedialog
+import customtkinter as ctk
+from tkinter import messagebox, filedialog, PhotoImage
 import datetime
+
+
 
 # Configuración inicial de apariencia
 ctk.set_appearance_mode("System")
@@ -171,7 +173,7 @@ class PacketSniffer:
 class SnifferGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Sniffer de Red Mejorado")
+        self.title("Sniffer de Red")
         self.geometry("850x750")
         self.sniffer = None
 
@@ -262,6 +264,28 @@ class SnifferGUI(ctk.CTk):
         ctk.CTkButton(ruta_frame, text="Abrir carpeta", command=self.abrir_carpeta, width=120).grid(
         row=0, column=1, sticky="w", padx=(0, 5)
         )
+                # ======= Análisis manual por ruta de archivo =======
+        ctk.CTkLabel(frame_param, text="Analizar archivo pcap existente:").pack(anchor="w")
+
+        analizar_frame = ctk.CTkFrame(frame_param)
+        analizar_frame.pack(fill="x", pady=5)
+
+        self.ruta_pcap_manual_var = ctk.StringVar()
+
+        analizar_frame.grid_columnconfigure(0, weight=2)
+        analizar_frame.grid_columnconfigure(1, weight=0)
+
+        self.entry_ruta_pcap = ctk.CTkEntry(
+            analizar_frame,
+            textvariable=self.ruta_pcap_manual_var,
+            placeholder_text="Ruta del archivo .pcap"
+        )
+        self.entry_ruta_pcap.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.entry_ruta_pcap.bind("<Button-1>", self.abrir_dialogo_archivo)
+
+        ctk.CTkButton(analizar_frame, text="Analizar", command=self.analizar_ruta_manual).grid(
+            row=0, column=1, sticky="w"
+        )
 
         # ======== BOTONES DE CONTROL ========
         frame_botones = ctk.CTkFrame(self)
@@ -286,11 +310,58 @@ class SnifferGUI(ctk.CTk):
         self.switch_tema.select()
         self.switch_tema.pack(pady=5)
 
-        # ======== ÁREA DE RESULTADOS ========
-        self.text_area = ctk.CTkTextbox(self, height=28)
-        self.text_area.pack(fill="both", expand=True, padx=10, pady=10)
+        # ======== ÁREA DE RESULTADOS (ocultable) ========
+        self.frame_resultados = ctk.CTkFrame(self)
+        self.frame_resultados.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.text_area = ctk.CTkTextbox(self.frame_resultados, height=28)
+        self.text_area.pack(fill="both", expand=True)
         self.text_area.tag_config("warning", foreground="red")
 
+        # Switch para mostrar/ocultar el contenedor de paquetes
+        self.mostrar_paquetes_var = ctk.BooleanVar(value=True)
+        self.switch_paquetes = ctk.CTkSwitch(
+            self, text="Mostrar paquetes",
+            variable=self.mostrar_paquetes_var,
+            command=self.toggle_paquetes
+)
+        # Empaqueta el switch justo debajo de los botones de control (o donde prefieras)
+        self.switch_paquetes.pack(pady=5)
+
+        
+    def abrir_dialogo_archivo(self, event=None):
+        archivo = filedialog.askopenfilename(filetypes=[("Archivos PCAP", "*.pcap")])
+        if archivo:
+            self.ruta_pcap_manual_var.set(archivo)
+
+    def analizar_ruta_manual(self):
+        ruta_pcap = self.ruta_pcap_manual_var.get().strip()
+        if not ruta_pcap or not os.path.exists(ruta_pcap):
+            messagebox.showerror("Ruta inválida", "Especifica una ruta válida a un archivo .pcap existente.")
+            return
+
+        try:
+            analizador = AnalizadorVulnerabilidades(ruta_pcap)
+            self.text_area.insert("end", f"\nResultados del análisis para: {ruta_pcap}\n", "bold")
+            analizador.analizar_paquetes()
+        except Exception as e:
+            messagebox.showerror("Error de análisis", f"Ocurrió un error al analizar el archivo:\n{e}")
+            return
+
+        if hasattr(analizador, 'alertas') and analizador.alertas:
+            self.text_area.insert("end", "\nAdvertencias detectadas:\n", "warning")
+            for alerta in analizador.alertas:
+                self.text_area.insert("end", alerta + '\n', "warning")
+            messagebox.showwarning("Advertencia de Seguridad", "Se detectaron posibles amenazas en el archivo.")
+        else:
+            self.text_area.insert("end", "\nNo se detectaron amenazas evidentes.\n")
+            messagebox.showinfo("Análisis completo", "No se encontraron alertas de seguridad.")
+
+        self.text_area.insert("end", "\nIPs más activas:\n", "bold")
+        for ip, count in sorted(analizador.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]:
+            self.text_area.insert("end", f"{ip} → {count} paquetes\n")
+
+        self.text_area.see("end")
 
     def iniciar_captura(self):
         self.text_area.delete("1.0", "end")
@@ -386,6 +457,14 @@ class SnifferGUI(ctk.CTk):
                 os.system(f"xdg-open '{ruta}'")
         else:
             messagebox.showerror("Ruta inválida", "La carpeta especificada no existe.")
+
+    def toggle_paquetes(self):
+        if self.mostrar_paquetes_var.get():
+            # volver a mostrar el frame de resultados
+            self.frame_resultados.pack(fill="both", expand=True, padx=10, pady=10)
+        else:
+            # ocultar el frame de resultados
+            self.frame_resultados.pack_forget()
 
     def toggle_tema(self):
         nuevo_modo = "Dark" if self.tema_oscuro.get() else "Light"

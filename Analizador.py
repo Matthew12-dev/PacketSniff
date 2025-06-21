@@ -4,6 +4,7 @@ from datetime import datetime
 import joblib
 import numpy as np
 import os
+import pandas as pd
 
 def construir_vector_paquete(pkt):
     def extraer_campo(layer, campo, default=0):
@@ -64,8 +65,10 @@ class AnalizadorVulnerabilidades:
         if 'IP' not in pkt or not self.modelo:
             return False
         try:
-            features = construir_vector_paquete(pkt)
-            pred = self.modelo.predict(features)
+            features = construir_vector_paquete(pkt)   # array 1×n
+            cols     = self.modelo.feature_names_in_  # nombres guardados al entrenar
+            df       = pd.DataFrame(features, columns=cols)
+            pred     = self.modelo.predict(df)
             return pred[0] == 0  # 0 = amenaza, 1 = benigno
         except Exception as e:
             self.alertas.append(f"[ERROR ML] {e}")

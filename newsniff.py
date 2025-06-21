@@ -177,6 +177,7 @@ class SnifferGUI(ctk.CTk):
         self.title("Sniffer de Red")
         self.geometry("850x750")
         self.sniffer = None
+        self.analizador = AnalizadorVulnerabilidades()
 
         self.tema_oscuro = ctk.BooleanVar(value=True)
         self.ruta_guardado_var = ctk.StringVar(value=os.path.abspath("capturas"))
@@ -370,11 +371,6 @@ class SnifferGUI(ctk.CTk):
         else:
             txt.insert("end", "No se detectaron amenazas.\n\n")
 
-        # IPs más activas
-        txt.insert("end", "\nIPs más activas:\n", "bold")
-        for ip, cnt in sorted(analizador.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]:
-            txt.insert("end", f"{ip} → {cnt} paquetes\n")
-
         txt.see("end")
 
         # Botón cerrar
@@ -433,7 +429,15 @@ class SnifferGUI(ctk.CTk):
             self.text_area.insert("end", resumen + '\n')
             self.text_area.see("end")
 
-    
+            # Aquí tratamos de acceder al último paquete
+        if self.sniffer and self.sniffer.paquetes_raw:
+            ultimo_pkt = self.sniffer.paquetes_raw[-1]
+            try:
+                if self.analizador.evaluar_paquete(ultimo_pkt):
+                    src_ip = ultimo_pkt[IP].src if IP in ultimo_pkt else "desconocida"
+                    messagebox.showwarning("⚠ Amenaza detectada", f"Paquete sospechoso desde IP {src_ip}")
+            except Exception as e:
+                print(f"[ERROR evaluación] {e}")
     def abrir_carpeta(self):
         ruta = self.ruta_guardado_var.get()
         if os.path.exists(ruta):

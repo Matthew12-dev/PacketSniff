@@ -5,7 +5,7 @@ import platform
 from Analizador import AnalizadorVulnerabilidades
 from scapy.all import sniff, Ether, IP, IPv6, TCP, UDP, wrpcap, get_working_ifaces
 import customtkinter as ctk
-from tkinter import messagebox, filedialog, PhotoImage
+from tkinter import messagebox, filedialog
 import datetime
 
 
@@ -80,6 +80,7 @@ class PacketSniffer:
                 )
         except Exception as e:
             print(f"[ERROR] Error durante la captura: {e}")
+        self.guardar_paquetes()
         self.stop()
 
     def _progreso_captura_fluido(self):
@@ -293,7 +294,6 @@ class SnifferGUI(ctk.CTk):
         ctk.CTkButton(frame_botones, text="Iniciar Captura Manual", command=self.iniciar_captura).pack(side="left", expand=True, padx=5)
         ctk.CTkButton(frame_botones, text="Detener Captura", command=self.detener_captura).pack(side="left", expand=True, padx=5)
         ctk.CTkButton(frame_botones, text="Captura Automatica", command=self.iniciar_captura_manual).pack(side="left", expand=True, padx=5)
-        ctk.CTkButton(frame_botones, text="Analizar Captura", command=self.analizar_pcap).pack(side="left", expand=True, padx=5)
 
         # ======== ESTADO Y PROGRESO ========
         frame_estado = ctk.CTkFrame(self)
@@ -335,33 +335,51 @@ class SnifferGUI(ctk.CTk):
             self.ruta_pcap_manual_var.set(archivo)
 
     def analizar_ruta_manual(self):
+
         ruta_pcap = self.ruta_pcap_manual_var.get().strip()
         if not ruta_pcap or not os.path.exists(ruta_pcap):
-            messagebox.showerror("Ruta inválida", "Especifica una ruta válida a un archivo .pcap existente.")
+            messagebox.showerror("Ruta inválida", "Especifica una ruta válida a un archivo .pcap.")
             return
 
+        # Crear ventana emergente
+        popup = ctk.CTkToplevel(self)
+        popup.title("Análisis de Archivo Manual")
+        popup.geometry("700x500")
+        
+        label = ctk.CTkLabel(popup, text=f"Resultados del análisis para:\n{ruta_pcap}", font=("", 12, "bold"))
+        label.pack(anchor="w", padx=10, pady=(10,0))
+        
+        txt = ctk.CTkTextbox(popup)
+        txt.pack(fill="both", expand=True, padx=10, pady=10)
+        txt.tag_config("warning", foreground="red")
+
+        # Ejecutar análisis
         try:
-            analizador = AnalizadorVulnerabilidades(ruta_pcap)
-            self.text_area.insert("end", f"\nResultados del análisis para: {ruta_pcap}\n", "bold")
-            analizador.analizar_paquetes()
+            analizador = AnalizadorVulnerabilidades()
+            analizador.analizar_archivo(ruta_pcap)
         except Exception as e:
-            messagebox.showerror("Error de análisis", f"Ocurrió un error al analizar el archivo:\n{e}")
+            messagebox.showerror("Error de análisis", f"Ocurrió un error:\n{e}")
+            popup.destroy()
             return
 
-        if hasattr(analizador, 'alertas') and analizador.alertas:
-            self.text_area.insert("end", "\nAdvertencias detectadas:\n", "warning")
-            for alerta in analizador.alertas:
-                self.text_area.insert("end", alerta + '\n', "warning")
-            messagebox.showwarning("Advertencia de Seguridad", "Se detectaron posibles amenazas en el archivo.")
+        # Mostrar alertas o éxito
+        if analizador.alertas:
+            txt.insert("end", "Advertencias detectadas:\n", "bold")
+            for a in analizador.alertas:
+                txt.insert("end", a + "\n", "warning")
         else:
-            self.text_area.insert("end", "\nNo se detectaron amenazas evidentes.\n")
-            messagebox.showinfo("Análisis completo", "No se encontraron alertas de seguridad.")
+            txt.insert("end", "No se detectaron amenazas.\n\n")
 
-        self.text_area.insert("end", "\nIPs más activas:\n", "bold")
-        for ip, count in sorted(analizador.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]:
-            self.text_area.insert("end", f"{ip} → {count} paquetes\n")
+        # IPs más activas
+        txt.insert("end", "\nIPs más activas:\n", "bold")
+        for ip, cnt in sorted(analizador.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]:
+            txt.insert("end", f"{ip} → {cnt} paquetes\n")
 
-        self.text_area.see("end")
+        txt.see("end")
+
+        # Botón cerrar
+        ctk.CTkButton(popup, text="Cerrar", command=popup.destroy).pack(pady=5)
+
 
     def iniciar_captura(self):
         self.text_area.delete("1.0", "end")
@@ -415,36 +433,6 @@ class SnifferGUI(ctk.CTk):
             self.text_area.insert("end", resumen + '\n')
             self.text_area.see("end")
 
-    def analizar_pcap(self):
-        ruta = self.ruta_guardado_var.get()
-        archivos = sorted([f for f in os.listdir(ruta) if f.endswith(".pcap")])
-        if not archivos:
-            messagebox.showinfo("Sin archivos", "No hay archivos .pcap en la carpeta de guardado.")
-            return
-        ultimo = os.path.join(ruta, archivos[-1])
-
-        try:
-            analizador = AnalizadorVulnerabilidades(ultimo)
-            self.text_area.insert("end", "\nResultados del análisis:\n", "bold")
-            analizador.analizar_paquetes()
-        except Exception as e:
-            messagebox.showerror("Error de análisis", f"Ocurrió un error al analizar el archivo:\n{e}")
-            return
-
-        if hasattr(analizador, 'alertas') and analizador.alertas:
-            self.text_area.insert("end", "\nAdvertencias detectadas:\n", "warning")
-            for alerta in analizador.alertas:
-                self.text_area.insert("end", alerta + '\n', "warning")
-            messagebox.showwarning("Advertencia de Seguridad", "Se detectaron posibles amenazas.\nRevisa los detalles en el panel.")
-        else:
-            self.text_area.insert("end", "\nNo se detectaron amenazas evidentes.\n")
-            messagebox.showinfo("Análisis completo", "No se encontraron alertas de seguridad.")
-
-        self.text_area.insert("end", "\nIPs más activas:\n", "bold")
-        for ip, count in sorted(analizador.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]:
-            self.text_area.insert("end", f"{ip} → {count} paquetes\n")
-
-        self.text_area.see("end")
     
     def abrir_carpeta(self):
         ruta = self.ruta_guardado_var.get()
@@ -473,6 +461,10 @@ class SnifferGUI(ctk.CTk):
 if __name__ == "__main__":
     app = SnifferGUI()
     app.mainloop()
+
+
+
+
 
 
 

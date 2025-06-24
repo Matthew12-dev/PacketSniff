@@ -4,7 +4,6 @@ from datetime import datetime
 import joblib
 import numpy as np
 import os
-import pandas as pd
 
 def construir_vector_paquete(pkt):
     def extraer_campo(layer, campo, default=0):
@@ -48,6 +47,37 @@ def construir_vector_paquete(pkt):
     ]
     return np.array(vector).reshape(1, -1)
 
+def detectar_por_heuristica(pkt):
+    try:
+        if 'IP' not in pkt:
+            return False, ""
+
+        ip = pkt.ip
+        proto = pkt.transport_layer if hasattr(pkt, 'transport_layer') else None
+        dst_port = int(pkt[pkt.transport_layer].dstport) if proto in ['TCP', 'UDP'] else None
+
+        puertos_riesgo = [23, 2323, 31337, 4444, 5555, 6667, 1337]
+        if dst_port in puertos_riesgo:
+            return True, f"Puerto destino sospechoso: {dst_port}"
+
+        if hasattr(ip, 'ttl') and int(ip.ttl) <= 1:
+            return True, f"TTL muy bajo: {ip.ttl}"
+
+        if hasattr(pkt, 'length'):
+            length = int(pkt.length)
+            if length > 1500:
+                return True, f"Paquete demasiado grande: {length} bytes"
+            if length < 40:
+                return True, f"Paquete demasiado pequeño: {length} bytes"
+
+        if proto not in ['TCP', 'UDP', 'ICMP']:
+            return True, f"Protocolo inusual: {proto}"
+
+        return False, ""
+
+    except Exception as e:
+        return False, f"[ERROR heurística] {e}"
+    
 class AnalizadorVulnerabilidades:
     def __init__(self, modelo_path='modelo_randomforest.pkl'):
         self.alertas = []
@@ -62,17 +92,23 @@ class AnalizadorVulnerabilidades:
             self.alertas.append(f"[ERROR] No se pudo cargar el modelo: {e}")
 
     def evaluar_paquete(self, pkt):
-        if 'IP' not in pkt or not self.modelo:
-            return False
-        try:
-            features = construir_vector_paquete(pkt)   # array 1×n
-            cols     = self.modelo.feature_names_in_  # nombres guardados al entrenar
-            df       = pd.DataFrame(features, columns=cols)
-            pred     = self.modelo.predict(df)
-            return pred[0] == 0  # 0 = amenaza, 1 = benigno
-        except Exception as e:
-            self.alertas.append(f"[ERROR ML] {e}")
-            return False
+       if 'IP' not in pkt:
+        return False
+
+       try:
+         heuristica, _ = detectar_por_heuristica(pkt)
+         if heuristica:
+            return True
+         # Si no fue detectado por heurísticas, usar modelo ML
+         if self.modelo:
+            features = construir_vector_paquete(pkt)
+            pred = self.modelo.predict(features)
+            return pred[0] == 0  # 0 = amenaza
+
+       except:
+          return False
+
+       return False  # Si no hay alerta
 
     def analizar_archivo(self, archivo_pcap):
         try:
@@ -82,15 +118,33 @@ class AnalizadorVulnerabilidades:
             return
 
         for pkt in cap:
-            try:
-                self._analizar_paquete(pkt)
-            except:
+           try:
+              if 'IP' not in pkt:
                 continue
 
+              heur, razon = detectar_por_heuristica(pkt)
+              if heur:
+                self.alertas.append(f"[HEURÍSTICA] {razon}")
+                continue  # Ya se detectó por heurística
+
+            # Si no heurística, usar ML si está disponible
+              if self.modelo:
+                 features = construir_vector_paquete(pkt)
+                 pred = self.modelo.predict(features)
+                 if pred[0] == 0:
+                     self.alertas.append(f"[ML] Amenaza detectada por modelo en paquete IP {pkt.ip.src} -> {pkt.ip.dst}")
+
+           except Exception as e:
+               self.alertas.append(f"[ERROR en paquete] {e}")
+               continue
+
         cap.close()
-        self.detectar_dos_simples()
         self.mostrar_ips_activas()
 
+        print("\n📌 RESUMEN DE ALERTAS:")
+        for alerta in self.alertas:
+            print(alerta)
+            
     def _analizar_paquete(self, pkt):
         if 'IP' in pkt:
             src = pkt.ip.src
@@ -101,14 +155,6 @@ class AnalizadorVulnerabilidades:
             if self.evaluar_paquete(pkt):
                 self.alertas.append(f"🚨 AMENAZA detectada por modelo ML desde {src}")
 
-    def detectar_dos_simples(self):
-        for ip, tiempos in self.timestamps_por_ip.items():
-            if len(tiempos) >= 10:
-                tiempos.sort()
-                intervalo = (tiempos[-1] - tiempos[0]).total_seconds()
-                if intervalo < 5:
-                    self.alertas.append(f"⚠️ Posible ataque DoS desde {ip}: {len(tiempos)} paquetes en {intervalo:.2f}s")
-
     def mostrar_ips_activas(self):
         ip_ordenadas = sorted(self.conteo_ips.items(), key=lambda x: x[1], reverse=True)
         self.alertas.append("\n📊 IPs más activas:")
@@ -117,5 +163,6 @@ class AnalizadorVulnerabilidades:
             return
         for ip, count in ip_ordenadas[:5]:
             self.alertas.append(f"{ip} → {count} paquetes")
+
 
 

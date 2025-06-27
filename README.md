@@ -11,7 +11,7 @@ Esta solución combina tres enfoques clave:
 El proyecto integra distintos módulos esenciales:
 - Una interfaz gráfica moderna (CustomTkinter) para usuarios no técnicos.
 - Un simulador de ataques locales (SYN Flood, DNS Tunneling, UDP Flood, peticiones HTTP maliciosas) para validar la detección en entornos controlados.
-- Estos ataques son los más comunes y faciles de detectar por heurística en la actualidad, esto validado por Fortine (https://www.fortinet.com/lat/resources/cyberglossary/types-of-cyber-attacks)
+- Estos ataques son los más comunes y faciles de detectar por heurística en la actualidad, esto validado por Fortinet (https://www.fortinet.com/lat/resources/cyberglossary/types-of-cyber-attacks)
 - Un analizador de archivos .pcap, con heurísticas de seguridad y predicción automática.
 - Un motor de análisis en segundo plano que agrupa los paquetes en bloques para procesarlos de forma eficiente.
 

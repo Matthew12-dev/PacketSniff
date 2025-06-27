@@ -1,5 +1,23 @@
 # PacketSniff : Detección de Amenazas con Heuristica y la implementación de ML
-Un Sniffer de paquetes hecho con Python, usando la libería socket y scapy , consiste en un lector de captura de tráfico de red que son procesados por una base de datos, donde se puede realizar un análisis sobre la composición de los paquetes, encabezados, protocolos, cifrado, etc. Para un análisis más inteligente, se implementará la Inteligencia Artificial con la librería OpenAI, su objetivo principal es proporcionar una solución completa para administradores de red o equipos de ciberseguridad, permitiéndoles identificar riesgos y tomar acciones correctivas con base en datos procesados y recomendaciones IA.
+PacketSniff es una herramienta desarrollada en Python que permite la detección de amenazas en redes locales a través de la captura, análisis y clasificación inteligente del tráfico de red. Su principal objetivo es proporcionar una plataforma interactiva y automatizada para que analistas de seguridad o administradores de red puedan identificar patrones sospechosos, detectar posibles ataques y tomar decisiones con base en evidencia procesada.
+
+Esta solución combina tres enfoques clave:
+
+Captura de tráfico en tiempo real, configurable mediante interfaz gráfica.
+
+Análisis heurístico de cabeceras y comportamientos anómalos.
+
+Clasificación automática de amenazas usando un modelo de Machine Learning (Random Forest) entrenado con datos del conjunto CICIDS 2017, reconocido en el campo de la ciberseguridad.
+
+El proyecto integra distintos módulos esenciales:
+
+Una interfaz gráfica moderna (CustomTkinter) para usuarios no técnicos.
+
+Un simulador de ataques locales (SYN Flood, DNS Tunneling, UDP Flood, peticiones HTTP maliciosas) para validar la detección en entornos controlados.
+
+Un analizador de archivos .pcap, con heurísticas de seguridad y predicción automática.
+
+Un motor de análisis en segundo plano que agrupa los paquetes en bloques para procesarlos de forma eficiente.
 
 ## Tabla de contenidos
 ## Descripción

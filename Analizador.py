@@ -90,95 +90,6 @@ class AnalizadorVulnerabilidades:
         except Exception as e:
             self.alertas.append(f"[ERROR] No se pudo cargar el modelo: {e}")
 
-    def analizar_paquete_en_vivo(self, pkt):
-        if 'IP' not in pkt:
-            return
-        try:
-            self.mensajes_recientes.clear()  # ← limpiar mensajes previos en cada análisis
-
-            proto = pkt.transport_layer if hasattr(pkt, 'transport_layer') else 'OTHR'
-
-            if 'HTTP' in pkt:
-                msg = "[HEURÍSTICA] Tráfico HTTP detectado"
-                self.mensajes_recientes.append(msg)
-
-            if hasattr(pkt, 'transport_layer'):
-                proto = pkt.transport_layer
-                if proto not in ['TCP', 'UDP', 'ICMP']:
-                    msg = f"[HEURÍSTICA] Protocolo inusual: {proto}"
-                    self.mensajes_recientes.append(msg)
-            else:
-                proto = None
-
-            if hasattr(pkt.ip, 'ttl') and int(pkt.ip.ttl) <= 1:
-                msg = f"[HEURÍSTICA] TTL muy bajo: {pkt.ip.ttl}"
-                self.mensajes_recientes.append(msg)
-
-            try:
-                es_telnet = (
-                    proto == "TCP" and (
-                        pkt[proto].dstport == "23" or
-                        (hasattr(pkt, 'layers') and 'TELNET' in pkt.layers)
-                    )
-                )
-                if es_telnet:
-                    msg = "[HEURÍSTICA] Tráfico TELNET detectado"
-                    self.mensajes_recientes.append(msg)
-            except:
-                pass
-
-            if 'DNS' in pkt:
-                try:
-                    nombre = pkt.dns.qry_name
-                    if len(nombre) > 100:
-                        msg = f"[HEURÍSTICA] Consulta DNS sospechosa/larga: {nombre[:60]}..."
-                        self.mensajes_recientes.append(msg)
-                except:
-                    pass
-
-            if pkt.highest_layer == "MDNS":
-                msg = f"[HEURÍSTICA] Tráfico MDNS detectado desde {pkt.ip.src}"
-                self.mensajes_recientes.append(msg)
-
-            if 'TCP' in pkt:
-                try:
-                    flags = int(pkt.tcp.flags, 16)
-                    if flags & 0x29 == 0x29:
-                        msg = f"[HEURÍSTICA] Patrón tipo Xmas Scan detectado desde {pkt.ip.src}"
-                        self.mensajes_recientes.append(msg)
-                except:
-                    pass
-
-            if proto in ['TCP', 'UDP']:
-                try:
-                    if int(pkt[proto].dstport) == 0:
-                        msg = f"[HEURÍSTICA] Puerto destino 0 detectado desde {pkt.ip.src}"
-                        self.mensajes_recientes.append(msg)
-                except:
-                    pass
-
-            ip_src = pkt.ip.src
-            ip_dst = pkt.ip.dst
-            src_port = int(pkt[proto].srcport) if proto in ['TCP', 'UDP'] else 0
-            dst_port = int(pkt[proto].dstport) if proto in ['TCP', 'UDP'] else 0
-            clave = (ip_src, ip_dst, src_port, dst_port, proto)
-
-            if self.flujos[clave] is None:
-                self.flujos[clave] = Flujo(clave)
-            self.flujos[clave].agregar(pkt)
-
-            if len(self.flujos[clave].paquetes) >= 20:
-                vector = self.flujos[clave].calcular_vector()
-                if vector is not None and self.modelo:
-                    pred = self.modelo.predict(vector)
-                    if pred[0] == 0:
-                        msg = f"[ML] 🚨 Amenaza detectada en flujo {clave}"
-                        self.mensajes_recientes.append(msg)
-                del self.flujos[clave]
-        except:
-            pass
-
-
     def detectar_syn_flood(self, pkt):
        try:
           if 'TCP' not in pkt:
@@ -200,8 +111,8 @@ class AnalizadorVulnerabilidades:
        except:
           pass
        return False, ""
-
-    def analizar_archivo(self, archivo_pcap):
+    
+    def analizar_archivo(self, archivo_pcap, incluir_resumen_ips=True):
         self.mensajes_mostrados.clear()
         self.alertas.clear()
         self.conteo_ips.clear()  # ← Reinicia el conteo al iniciar nuevo análisis
@@ -319,22 +230,24 @@ class AnalizadorVulnerabilidades:
         cap.close()
         self.flujos.clear()
 
+ 
         # Agregar resumen de IPs más activas
-        resumen_ips = "\n📊 IPs más activas:"
-        if resumen_ips not in self.mensajes_mostrados:
-            self.alertas.append(resumen_ips)
-            self.mensajes_mostrados.add(resumen_ips)
+        if incluir_resumen_ips:
+           resumen_ips = "\n📊 IPs más activas:"
+           if resumen_ips not in self.mensajes_mostrados:
+              self.alertas.append(resumen_ips)
+              self.mensajes_mostrados.add(resumen_ips)
 
-        if not self.conteo_ips:
-            msg = "No se detectaron IPs activas."
-            if msg not in self.mensajes_mostrados:
+           if not self.conteo_ips:
+             msg = "No se detectaron IPs activas."
+             if msg not in self.mensajes_mostrados:
                 self.alertas.append(msg)
                 self.mensajes_mostrados.add(msg)
-        else:
-            top_ips = sorted(self.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]
-            for ip, count in top_ips:
-                linea = f"{ip} → {count} paquetes"
-                if linea not in self.mensajes_mostrados:
+           else:
+               top_ips = sorted(self.conteo_ips.items(), key=lambda x: x[1], reverse=True)[:5]
+               for ip, count in top_ips:
+                  linea = f"{ip} → {count} paquetes"
+                  if linea not in self.mensajes_mostrados:
                     self.alertas.append(linea)
                     self.mensajes_mostrados.add(linea)
 

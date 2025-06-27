@@ -7,6 +7,7 @@ from scapy.all import sniff, Ether, IP, IPv6, TCP, UDP, wrpcap, get_working_ifac
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
 import datetime
+import tempfile
 
 # Configuración inicial de apariencia
 ctk.set_appearance_mode("System")
@@ -49,6 +50,9 @@ class PacketSniffer:
         self.tiempo_captura = None
         self.inicio = None
         self.ruta_guardado = ruta_guardado
+        self.evento_analisis = threading.Event()
+        self.hilo_analisis = threading.Thread(target=self._hilo_analizar_bloques, daemon=True)
+        self.hilo_analisis.start()
 
     def start(self, tiempo_captura):
         if self.capturando:
@@ -95,7 +99,7 @@ class PacketSniffer:
     def stop(self):
         if self.capturando:
             self.capturando = False
-        
+
 
     def process_packet(self, packet):
         if Ether in packet:
@@ -151,8 +155,35 @@ class PacketSniffer:
                               ip_src, ip_dst, ip_version)
             self.paquetes_capturados.append(paquete)
             self.paquetes_raw.append(packet)
+
             if self.packet_callback:
                 self.packet_callback(paquete.resumen())
+
+            if len(self.paquetes_raw) >= 10 and len(self.paquetes_raw) % 10 == 0 and not self.evento_analisis.is_set():
+                self.evento_analisis.set()
+
+    def _hilo_analizar_bloques(self):
+      while True:
+        self.evento_analisis.wait()
+        try:
+            ultimos = self.paquetes_raw[-10:]
+            if not ultimos:
+                continue
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pcap") as temp:
+                wrpcap(temp.name, ultimos)
+
+                analizador = AnalizadorVulnerabilidades()
+                alertas = analizador.analizar_archivo(temp.name, incluir_resumen_ips=False)
+
+                for alerta in alertas:
+                    if self.packet_callback:
+                        self.packet_callback(f"[ALERTA] {alerta}")
+
+        except Exception as e:
+            print(f"[ERROR en análisis de bloque]: {e}")
+        finally:
+            self.evento_analisis.clear()
 
     def guardar_paquetes(self, nombre_archivo=None):
        if not self.paquetes_raw:
@@ -176,8 +207,6 @@ class SnifferGUI(ctk.CTk):
         self.geometry("850x750")
         self.sniffer = None
         self.alertas_mostradas = set()
-        self.analizador = AnalizadorVulnerabilidades()
-
         self.tema_oscuro = ctk.BooleanVar(value=True)
         self.ruta_guardado_var = ctk.StringVar(value=os.path.abspath("capturas"))
         self.crear_componentes()
@@ -324,7 +353,7 @@ class SnifferGUI(ctk.CTk):
             self, text="Mostrar paquetes",
             variable=self.mostrar_paquetes_var,
             command=self.toggle_paquetes
-)
+       )
         # Empaqueta el switch justo debajo de los botones de control (o donde prefieras)
         self.switch_paquetes.pack(pady=5)
 
@@ -387,7 +416,7 @@ class SnifferGUI(ctk.CTk):
                 messagebox.showerror("Error", "El tiempo debe ser mayor a 0.")
                 return
             iface_name = self.ifaces_dict[self.iface_var.get()]
-            filtro = self.filtro_var.get().strip() or None
+            filtro = self.filtro_var.get().strip() or "ip"
             ruta = self.ruta_guardado_var.get()
             self.sniffer = PacketSniffer(iface=iface_name, packet_callback=self.mostrar_paquete, bpf_filter=filtro, ruta_guardado=ruta)
             self.sniffer.start(tiempo)
@@ -426,20 +455,10 @@ class SnifferGUI(ctk.CTk):
           self.label_estado.configure(text=f"Captura en progreso... {valor}%")
        else:
           self.text_area.insert("end", resumen + '\n')
+          if resumen.startswith("[ALERTA]"):
+             messagebox.showwarning("⚠ Alerta en tiempo real", resumen)
           self.text_area.see("end")
         
-      # Evaluar el paquete más reciente por flujo
-       if self.sniffer and self.sniffer.paquetes_raw:
-          ultimo_pkt = self.sniffer.paquetes_raw[-1]
-          try:
-             self.analizador.analizar_paquete_en_vivo(ultimo_pkt)
-             for mensaje in self.analizador.mensajes_recientes:
-               if mensaje not in self.alertas_mostradas:
-                  messagebox.showwarning("⚠ Alerta en tiempo real", mensaje)
-                  self.alertas_mostradas.add(mensaje)
-          except Exception as e:
-            print(f"[ERROR evaluación en vivo] {e}")
-
     def abrir_carpeta(self):
         ruta = self.ruta_guardado_var.get()
         if os.path.exists(ruta):

@@ -23,7 +23,7 @@ También puedes incluir datosML.csv y entrenar_modelo.py si deseas modificar el 
 Si no lo tienes, puedes descargarlo desde la página oficial de Python: www.python.org
 
 - Instala las bibliotecas necesarias.
-Abre una terminal o consola en la carpeta del proyecto e instala las dependencias que se encuentran en el archivo requirements.txt.
+Abre una terminal o consola en la carpeta del proyecto e instala las dependencias que se encuentran en el **archivo **requirements.txt.
 Este archivo contiene todas las librerías que usa el programa, como Scapy, PyShark, CustomTkinter y scikit-learn.
 
 - Si usas Linux, instala Wireshark/TShark desde el gestor de paquetes de tu sistema.

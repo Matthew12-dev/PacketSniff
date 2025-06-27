@@ -131,7 +131,7 @@ class AnalizadorVulnerabilidades:
 
                 # Heurística: Tráfico HTTP
                 if 'HTTP' in pkt:
-                    msg = "[HEURÍSTICA] Tráfico HTTP detectado"
+                    msg = "Tráfico HTTP detectado"
                     if msg not in self.mensajes_mostrados:
                         self.alertas.append(msg)
                         self.mensajes_mostrados.add(msg)
@@ -139,14 +139,14 @@ class AnalizadorVulnerabilidades:
                 # Heurística: Protocolo inusual
                 proto = pkt.transport_layer if hasattr(pkt, 'transport_layer') else 'OTHE'
                 if proto not in ['TCP', 'UDP', 'ICMP'] and proto != 'OTHER':
-                    msg = f"[HEURÍSTICA] Protocolo inusual: {proto}"
+                    msg = f"Protocolo inusual: {proto}"
                     if msg not in self.mensajes_mostrados:
                         self.alertas.append(msg)
                         self.mensajes_mostrados.add(msg)
 
                 # Heurística: TTL bajo
                 if hasattr(pkt.ip, 'ttl') and int(pkt.ip.ttl) <= 1:
-                    msg = f"[HEURÍSTICA] TTL muy bajo: {pkt.ip.ttl}"
+                    msg = f"TTL muy bajo: {pkt.ip.ttl}"
                     if msg not in self.mensajes_mostrados:
                         self.alertas.append(msg)
                         self.mensajes_mostrados.add(msg)
@@ -159,7 +159,7 @@ class AnalizadorVulnerabilidades:
                    )
                 )
                 if es_telnet:
-                   msg = "[HEURÍSTICA] Tráfico TELNET detectado"
+                   msg = "Tráfico TELNET detectado"
                    if msg not in self.mensajes_mostrados:
                       self.alertas.append(msg)
                       self.mensajes_mostrados.add(msg)
@@ -178,7 +178,7 @@ class AnalizadorVulnerabilidades:
 
                 # Heurística: MDNS masivo (experimental - detección básica)
                 if pkt.highest_layer == "MDNS":
-                    msg = f"[HEURÍSTICA] Tráfico MDNS detectado desde {ip_src}"
+                    msg = f"Tráfico MDNS detectado desde {ip_src}"
                     if msg not in self.mensajes_mostrados:
                         self.alertas.append(msg)
                         self.mensajes_mostrados.add(msg)
